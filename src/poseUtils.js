@@ -30,6 +30,16 @@ export async function estimatePose(net, imageElement) {
 // Helper function to find a keypoint by name
 const getKeypoint = (pose, part) => pose.keypoints.find(k => k.part === part);
 
+// New helper function to calculate the angle between three points
+function calculateAngle(p1, p2, p3) {
+  const angle = Math.atan2(p3.y - p2.y, p3.x - p2.x) - Math.atan2(p1.y - p2.y, p1.x - p2.x);
+  let angleDegrees = Math.abs(angle * (180 / Math.PI));
+  if (angleDegrees > 180) {
+    angleDegrees = 360 - angleDegrees;
+  }
+  return angleDegrees;
+}
+
 // Normalize pose keypoints based on a reference distance (e.g., shoulder distance)
 function normalizePose(pose) {
   const leftShoulder = getKeypoint(pose, 'leftShoulder');
@@ -108,9 +118,49 @@ export function comparePoses(pose1, pose2) {
   if (totalWeight === 0) return false;
 
   const weightedAverageDistance = totalWeightedDistance / totalWeight;
-  console.log("Weighted average pose distance:", weightedAverageDistance);
+  
+  // Angle-based comparison
+  const jointAngleComparisons = {
+    leftElbow: [getKeypoint(normalizedPose1, 'leftShoulder'), getKeypoint(normalizedPose1, 'leftElbow'), getKeypoint(normalizedPose1, 'leftWrist')],
+    rightElbow: [getKeypoint(normalizedPose1, 'rightShoulder'), getKeypoint(normalizedPose1, 'rightElbow'), getKeypoint(normalizedPose1, 'rightWrist')],
+    leftShoulder: [getKeypoint(normalizedPose1, 'leftElbow'), getKeypoint(normalizedPose1, 'leftShoulder'), getKeypoint(normalizedPose1, 'leftHip')],
+    rightShoulder: [getKeypoint(normalizedPose1, 'rightElbow'), getKeypoint(normalizedPose1, 'rightShoulder'), getKeypoint(normalizedPose1, 'rightHip')],
+  };
 
-  // Adjust threshold based on testing with normalized distances.
-  // A smaller threshold is needed for normalized poses.
-  return weightedAverageDistance < 0.5; 
+  const jointAngleComparisons2 = {
+    leftElbow: [getKeypoint(normalizedPose2, 'leftShoulder'), getKeypoint(normalizedPose2, 'leftElbow'), getKeypoint(normalizedPose2, 'leftWrist')],
+    rightElbow: [getKeypoint(normalizedPose2, 'rightShoulder'), getKeypoint(normalizedPose2, 'rightElbow'), getKeypoint(normalizedPose2, 'rightWrist')],
+    leftShoulder: [getKeypoint(normalizedPose2, 'leftElbow'), getKeypoint(normalizedPose2, 'leftShoulder'), getKeypoint(normalizedPose2, 'leftHip')],
+    rightShoulder: [getKeypoint(normalizedPose2, 'rightElbow'), getKeypoint(normalizedPose2, 'rightShoulder'), getKeypoint(normalizedPose2, 'rightHip')],
+  };
+
+  let totalAngleDifference = 0;
+  let anglesCompared = 0;
+
+  for (const joint in jointAngleComparisons) {
+    const points1 = jointAngleComparisons[joint];
+    const points2 = jointAngleComparisons2[joint];
+
+    if (points1.every(p => p && p.score > 0.5) && points2.every(p => p && p.score > 0.5)) {
+      const angle1 = calculateAngle(points1[0].position, points1[1].position, points1[2].position);
+      const angle2 = calculateAngle(points2[0].position, points2[1].position, points2[2].position);
+      
+      totalAngleDifference += Math.abs(angle1 - angle2);
+      anglesCompared++;
+    }
+  }
+
+  const averageAngleDifference = anglesCompared > 0 ? totalAngleDifference / anglesCompared : 0;
+  
+  console.log("Weighted average pose distance:", weightedAverageDistance);
+  console.log("Average angle difference (degrees):", averageAngleDifference);
+
+  // Combined threshold logic
+  const distanceThreshold = 0.4;
+  const angleThreshold = 12;
+
+  const posesAreSimilar = weightedAverageDistance < distanceThreshold && averageAngleDifference < angleThreshold;
+
+  return posesAreSimilar;
 }
+
